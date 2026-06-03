@@ -15,10 +15,14 @@
 #define DISPENSE_TIMEOUT_MS_DEFAULT 10000
 #define DISPENSE_TIMEOUT_MS_MIN 100
 #define DISPENSE_TIMEOUT_MS_MAX 60000
+#define GOLD_THRESHOLD_DEFAULT 800
+#define GOLD_THRESHOLD_MIN 0
+#define GOLD_THRESHOLD_MAX 1023
 #define LDR_STREAM_INTERVAL_MS 100
 #define EEPROM_ADDR_DEV_MODE 0
 #define EEPROM_ADDR_DEV_PULSE_MS 1
 #define EEPROM_ADDR_TIMEOUT_MS 3
+#define EEPROM_ADDR_GOLD_THRESHOLD 7
 #define DEV_PULSE_MS_DEFAULT 10
 #define DEV_PULSE_MS_MIN 1
 #define DEV_PULSE_MS_MAX 1000
@@ -37,6 +41,7 @@ unsigned long lastLdrStreamMs = 0;
 uint8_t devMode = 0;
 unsigned int devPulseMs = DEV_PULSE_MS_DEFAULT;
 unsigned long dispenseTimeoutMs = DISPENSE_TIMEOUT_MS_DEFAULT;
+unsigned int goldThreshold = GOLD_THRESHOLD_DEFAULT;
 
 uint8_t sanitizeDevMode(uint8_t mode) {
   return mode <= 1 ? mode : 0;
@@ -56,6 +61,13 @@ unsigned long sanitizeDispenseTimeoutMs(unsigned long timeoutMs) {
   return timeoutMs;
 }
 
+unsigned int sanitizeGoldThreshold(unsigned int threshold) {
+  if (threshold < GOLD_THRESHOLD_MIN || threshold > GOLD_THRESHOLD_MAX) {
+    return GOLD_THRESHOLD_DEFAULT;
+  }
+  return threshold;
+}
+
 void saveDevModeToEeprom(uint8_t mode) {
   EEPROM.update(EEPROM_ADDR_DEV_MODE, sanitizeDevMode(mode));
 }
@@ -68,6 +80,11 @@ void saveDevPulseMsToEeprom(unsigned int pulseMs) {
 void saveDispenseTimeoutToEeprom(unsigned long timeoutMs) {
   unsigned long sanitizedTimeout = sanitizeDispenseTimeoutMs(timeoutMs);
   EEPROM.put(EEPROM_ADDR_TIMEOUT_MS, sanitizedTimeout);
+}
+
+void saveGoldThresholdToEeprom(unsigned int threshold) {
+  unsigned int sanitizedThreshold = sanitizeGoldThreshold(threshold);
+  EEPROM.put(EEPROM_ADDR_GOLD_THRESHOLD, sanitizedThreshold);
 }
 
 void loadDevModeFromEeprom() {
@@ -93,6 +110,15 @@ void loadDispenseTimeoutFromEeprom() {
   dispenseTimeoutMs = sanitizeDispenseTimeoutMs(storedTimeoutMs);
   if (storedTimeoutMs != dispenseTimeoutMs) {
     saveDispenseTimeoutToEeprom(dispenseTimeoutMs);
+  }
+}
+
+void loadGoldThresholdFromEeprom() {
+  unsigned int storedThreshold = 0;
+  EEPROM.get(EEPROM_ADDR_GOLD_THRESHOLD, storedThreshold);
+  goldThreshold = sanitizeGoldThreshold(storedThreshold);
+  if (storedThreshold != goldThreshold) {
+    saveGoldThresholdToEeprom(goldThreshold);
   }
 }
 
@@ -173,7 +199,7 @@ void dispense() {
   // STATE 2 - CLASSIFY: mide LDR con LED auxiliar para clasificar tarjeta.
   int ldrValue = readLdrWithLed();
  // Serial.println(ldrValue); // DEBUG: muestra valor LDR para diagnóstico
-  if (ldrValue < 800) {
+  if (ldrValue < goldThreshold) {
     Serial.println("GOLD");
   }
 
@@ -323,6 +349,19 @@ void processCommand(const char *cmd) {
     } else {
       Serial.println("ERR:RANGE");
     }
+  } else if (strcmp(cmd, "$GLD") == 0) {
+    Serial.print("GLD=");
+    Serial.println(goldThreshold);
+  } else if (strncmp(cmd, "$GLD ", 5) == 0) {
+    long val = atol(cmd + 5);
+    if (val >= GOLD_THRESHOLD_MIN && val <= GOLD_THRESHOLD_MAX) {
+      goldThreshold = (unsigned int)val;
+      saveGoldThresholdToEeprom(goldThreshold);
+      Serial.print("GLD=");
+      Serial.println(goldThreshold);
+    } else {
+      Serial.println("ERR:RANGE");
+    }
   } else {
     Serial.println("ERR:BAD-CMD");
   }
@@ -333,6 +372,7 @@ void setup() {
   loadDevModeFromEeprom();
   loadDevPulseMsFromEeprom();
   loadDispenseTimeoutFromEeprom();
+  loadGoldThresholdFromEeprom();
 
   pinMode(MOTOR_PIN, OUTPUT);
   digitalWrite(MOTOR_PIN, LOW);
