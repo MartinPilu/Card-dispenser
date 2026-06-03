@@ -40,3 +40,14 @@ python3 testapp/dispenser_test_cli.py
   - `TX` comandos enviados
   - `RX` respuestas recibidas
   - Archivos en `testapp/logs/`
+
+## Compilar ejecutable para Windows (.exe)
+
+Requiere **Python 3.9+** instalado en Windows y acceso a internet para bajar PyInstaller la primera vez.
+
+1. Copiar la carpeta `testapp/` a una máquina Windows (o clonar el repositorio)
+2. Hacer doble click en `testapp/build_windows.bat`
+3. El ejecutable queda en `testapp/dist/dispenser_tester.exe`
+
+El `.exe` es autónomo (un solo archivo), no requiere Python instalado para ejecutarse.
+La carpeta `logs/` se crea automáticamente junto al `.exe` al primer uso.
