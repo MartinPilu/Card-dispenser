@@ -47,6 +47,8 @@ FIRMWARE_COMMANDS = [
     ("$D2P <1-1000>", "Pulso trigger", "Ancho de pulso salida DEV (ms)"),
     ("$TOUT", "Leer timeout", "Muestra timeout actual de dispensado"),
     ("$TOUT <100-60000>", "Set timeout", "Configura timeout de dispensado (ms)"),
+    ("$GLD", "Leer umbral GOLD", "Muestra umbral de deteccion GOLD"),
+    ("$GLD <0-1023>", "Set umbral GOLD", "Configura umbral de deteccion GOLD"),
 ]
 
 
@@ -155,7 +157,22 @@ class SerialTester:
 
 
 def list_serial_ports() -> list[str]:
-    return [p.device for p in list_ports.comports() if "us" in p.device.lower()]
+    ports: list[str] = []
+    for p in list_ports.comports():
+        device = (p.device or "").lower()
+        descriptor = " ".join(
+            [
+                p.description or "",
+                p.manufacturer or "",
+                p.hwid or "",
+                p.name or "",
+            ]
+        ).lower()
+
+        # Keep Windows COM ports and USB-like serial adapters.
+        if device.startswith("com") or "usb" in descriptor or "usb" in device:
+            ports.append(p.device)
+    return ports
 
 
 class App(tk.Tk):
