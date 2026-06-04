@@ -148,11 +148,12 @@ bool isBeamBlocked() {
 }
 
 int readLdrWithLed() {
+  int adcValueLedOff = analogRead(LDR_SENSOR); // lectura sin LED para referencia
   digitalWrite(LDR_LED_PIN, LOW);
   delay(10);
   int adcValue = analogRead(LDR_SENSOR);
   digitalWrite(LDR_LED_PIN, HIGH);
-  return adcValue;
+  return adcValue - adcValueLedOff; // retorna diferencia para compensar luz ambiental
 }
 
 int readLdrRaw() {
@@ -186,6 +187,8 @@ bool waitForPulseOnDevInput(unsigned long timeoutMs) {
 
 void dispense() {
   // STATE 0 - PRECHECK: no iniciar si la barrera ya está tapada.
+  Serial.println("OK"); //confirmacion de comando recibido
+
   if (isBeamBlocked()) {
     Serial.println("ERR:2");
     return;
@@ -194,7 +197,6 @@ void dispense() {
   // STATE 1 - START: arranca ambos motores y confirma recepción del comando.
   analogWrite(MOTOR_PIN, motorSpeed);
   analogWrite(MOTOR2_PIN, motor2Speed);
-  Serial.println("OK");
 
   // STATE 2 - CLASSIFY: mide LDR con LED auxiliar para clasificar tarjeta.
   int ldrValue = readLdrWithLed();
