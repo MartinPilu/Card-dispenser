@@ -49,6 +49,9 @@ FIRMWARE_COMMANDS = [
     ("$TOUT <100-60000>", "Set timeout", "Configura timeout de dispensado (ms)"),
     ("$GLD", "Leer umbral GOLD", "Muestra umbral de deteccion GOLD"),
     ("$GLD <0-1023>", "Set umbral GOLD", "Configura umbral de deteccion GOLD"),
+    ("$ETY", "Leer umbral EMPTY", "Muestra umbral de deteccion EMPTY"),
+    ("$ETY <0-1023>", "Set umbral EMPTY", "Configura umbral de deteccion EMPTY"),
+    ("$CTR", "Leer contadores", "Muestra contadores DISP/ERR1/ERR2"),
 ]
 
 
