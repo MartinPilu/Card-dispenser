@@ -18,11 +18,18 @@
 #define GOLD_THRESHOLD_DEFAULT 800
 #define GOLD_THRESHOLD_MIN 0
 #define GOLD_THRESHOLD_MAX 1023
+#define EMPTY_THRESHOLD_DEFAULT 600
+#define EMPTY_THRESHOLD_MIN 0
+#define EMPTY_THRESHOLD_MAX 1023
 #define LDR_STREAM_INTERVAL_MS 100
 #define EEPROM_ADDR_DEV_MODE 0
 #define EEPROM_ADDR_DEV_PULSE_MS 1
 #define EEPROM_ADDR_TIMEOUT_MS 3
 #define EEPROM_ADDR_GOLD_THRESHOLD 7
+#define EEPROM_ADDR_EMPTY_THRESHOLD 9
+#define EEPROM_ADDR_DISPENSE_COUNT 11
+#define EEPROM_ADDR_ERR1_COUNT 15
+#define EEPROM_ADDR_ERR2_COUNT 19
 #define DEV_PULSE_MS_DEFAULT 10
 #define DEV_PULSE_MS_MIN 1
 #define DEV_PULSE_MS_MAX 1000
@@ -42,6 +49,10 @@ uint8_t devMode = 0;
 unsigned int devPulseMs = DEV_PULSE_MS_DEFAULT;
 unsigned long dispenseTimeoutMs = DISPENSE_TIMEOUT_MS_DEFAULT;
 unsigned int goldThreshold = GOLD_THRESHOLD_DEFAULT;
+unsigned int emptyThreshold = EMPTY_THRESHOLD_DEFAULT;
+unsigned long dispenseCount = 0;
+unsigned long err1Count = 0;
+unsigned long err2Count = 0;
 
 uint8_t sanitizeDevMode(uint8_t mode) {
   return mode <= 1 ? mode : 0;
@@ -68,6 +79,13 @@ unsigned int sanitizeGoldThreshold(unsigned int threshold) {
   return threshold;
 }
 
+unsigned int sanitizeEmptyThreshold(unsigned int threshold) {
+  if (threshold < EMPTY_THRESHOLD_MIN || threshold > EMPTY_THRESHOLD_MAX) {
+    return EMPTY_THRESHOLD_DEFAULT;
+  }
+  return threshold;
+}
+
 void saveDevModeToEeprom(uint8_t mode) {
   EEPROM.update(EEPROM_ADDR_DEV_MODE, sanitizeDevMode(mode));
 }
@@ -86,6 +104,25 @@ void saveGoldThresholdToEeprom(unsigned int threshold) {
   unsigned int sanitizedThreshold = sanitizeGoldThreshold(threshold);
   EEPROM.put(EEPROM_ADDR_GOLD_THRESHOLD, sanitizedThreshold);
 }
+
+void saveEmptyThresholdToEeprom(unsigned int threshold) {
+  unsigned int sanitizedThreshold = sanitizeEmptyThreshold(threshold);
+  EEPROM.put(EEPROM_ADDR_EMPTY_THRESHOLD, sanitizedThreshold);
+}
+
+void saveDispenseCountToEeprom(unsigned long count) {
+  EEPROM.put(EEPROM_ADDR_DISPENSE_COUNT, count);
+}
+
+void saveErr1CountToEepromFunc(unsigned long count) {
+  EEPROM.put(EEPROM_ADDR_ERR1_COUNT, count);
+}
+
+void saveErr2CountToEeprom(unsigned long count) {
+  EEPROM.put(EEPROM_ADDR_ERR2_COUNT, count);
+}
+
+
 
 void loadDevModeFromEeprom() {
   uint8_t storedMode = EEPROM.read(EEPROM_ADDR_DEV_MODE);
@@ -121,6 +158,35 @@ void loadGoldThresholdFromEeprom() {
     saveGoldThresholdToEeprom(goldThreshold);
   }
 }
+
+void loadEmptyThresholdFromEeprom() {
+  unsigned int storedThreshold = 0;
+  EEPROM.get(EEPROM_ADDR_EMPTY_THRESHOLD, storedThreshold);
+  emptyThreshold = sanitizeEmptyThreshold(storedThreshold);
+  if (storedThreshold != emptyThreshold) {
+    saveEmptyThresholdToEeprom(emptyThreshold);
+  }
+}
+
+void loadDispenseCountFromEeprom() {
+  unsigned long storedCount = 0;
+  EEPROM.get(EEPROM_ADDR_DISPENSE_COUNT, storedCount);
+  dispenseCount = storedCount;
+}
+
+void loadErr1CountFromEepromFunc() {
+  unsigned long storedCount = 0;
+  EEPROM.get(EEPROM_ADDR_ERR1_COUNT, storedCount);
+  err1Count = storedCount;
+}
+
+void loadErr2CountFromEeprom() {
+  unsigned long storedCount = 0;
+  EEPROM.get(EEPROM_ADDR_ERR2_COUNT, storedCount);
+  err2Count = storedCount;
+}
+
+
 
 // Modula el LED IR y compara lecturas con/sin luz.
 // Retorna true si la barrera está bloqueada (tarjeta presente).
@@ -188,57 +254,66 @@ bool waitForPulseOnDevInput(unsigned long timeoutMs) {
 void dispense() {
   // STATE 0 - PRECHECK: no iniciar si la barrera ya está tapada.
   Serial.println("OK"); //confirmacion de comando recibido
+  dispenseCount++;
+  saveDispenseCountToEeprom(dispenseCount);
 
-  if (isBeamBlocked()) {
+  if (isBeamBlocked()) { // Si la barrera ya está bloqueada, es que hay una carta que no salio.
+    err2Count++;
+    saveErr2CountToEeprom(err2Count);
     Serial.println("ERR:2");
     return;
   }
 
-  // STATE 1 - START: arranca ambos motores y confirma recepción del comando.
-  analogWrite(MOTOR_PIN, motorSpeed);
-  analogWrite(MOTOR2_PIN, motor2Speed);
-
-  // STATE 2 - CLASSIFY: mide LDR con LED auxiliar para clasificar tarjeta.
   int ldrValue = readLdrWithLed();
- // Serial.println(ldrValue); // DEBUG: muestra valor LDR para diagnóstico
-  if (ldrValue < goldThreshold) {
+  
+  // Empty stock check before trying to dispense.
+  if (ldrValue <= (int)emptyThreshold) {
+    Serial.println("ERR:3");
+    return;
+  }
+  
+  // STATE 1 - CLASSIFY: mide LDR con LED auxiliar para clasificar tarjeta.
+  // Serial.println(ldrValue); // DEBUG: muestra valor LDR para diagnóstico
+  if (ldrValue > (int)emptyThreshold && ldrValue < (int)goldThreshold) {
     Serial.println("GOLD");
   }
 
-  // STATE 3 - WAIT_CLEAR: espera barrera libre para confirmar movimiento.
-  bool beamClear = waitForBeamState(false, dispenseTimeoutMs);
+  // STATE 2- START: arranca ambos motores y confirma recepción del comando.
+  analogWrite(MOTOR_PIN, motorSpeed);
+  analogWrite(MOTOR2_PIN, motor2Speed);
 
-  if (!beamClear) {
-    analogWrite(MOTOR_PIN, 0);
-    Serial.println("TIMEOUT");
-    return;
-  }
-
-  // STATE 4 - WAIT_BLOCK: espera que la tarjeta vuelva a tapar la barrera.
+  // STATE 3 - WAIT_BLOCK: espera que la barrera se bloquee para saber si el pusher funciono.
   bool cardDetected = waitForBeamState(true, dispenseTimeoutMs);
 
   if (!cardDetected) {
     analogWrite(MOTOR_PIN, 0);
     analogWrite(MOTOR2_PIN, 0);
+    err1Count++;
+    saveErr1CountToEepromFunc(err1Count);
     Serial.println("ERR:1");
     return;
   }
 
-  // STATE 5 - STOP_PICKER: mantiene un retardo y detiene el motor 2.
+  // STATE 4 - STOP_PICKER: si pusher ok mantiene un retardo y detiene el motor 2.
   if (motor2StopDelayMs > 0) {
     delay(motor2StopDelayMs);
   }
   analogWrite(MOTOR2_PIN, 0);
 
-  // STATE 6 - WAIT_CLEAR_END: espera salida completa para poder frenar motor 1.
+  // STATE 5 - WAIT_CLEAR_END: espera salida completa para poder frenar motor 1.
   bool beamClearAgain = waitForBeamState(false, dispenseTimeoutMs);
 
-  // STATE 7 - FINISH: detiene motor 1 y reporta resultado final.
   if (beamClearAgain && motor1StopDelayMs > 0) {
     delay(motor1StopDelayMs);
   }
   analogWrite(MOTOR_PIN, 0);
-  Serial.println(beamClearAgain ? "ERR:0" : "ERR:1");
+  if (!beamClearAgain) {
+    err1Count++;
+    saveErr1CountToEepromFunc(err1Count);
+    Serial.println("ERR:1");
+  } else {
+    Serial.println("ERR:0");
+  }
 }
 
 void dispenseAltDev1() {
@@ -247,7 +322,13 @@ void dispenseAltDev1() {
   digitalWrite(DEV_TRIGGER_OUT_PIN, LOW);
 
   bool pulseDetected = waitForPulseOnDevInput(dispenseTimeoutMs);
-  Serial.println(pulseDetected ? "ERR:0" : "ERR:1");
+  if (!pulseDetected) {
+    err1Count++;
+    saveErr1CountToEepromFunc(err1Count);
+    Serial.println("ERR:1");
+  } else {
+    Serial.println("ERR:0");
+  }
 }
 
 void processCommand(const char *cmd) {
@@ -364,6 +445,26 @@ void processCommand(const char *cmd) {
     } else {
       Serial.println("ERR:RANGE");
     }
+  } else if (strcmp(cmd, "$ETY") == 0) {
+    Serial.print("ETY=");
+    Serial.println(emptyThreshold);
+  } else if (strncmp(cmd, "$ETY ", 5) == 0) {
+    long val = atol(cmd + 5);
+    if (val >= EMPTY_THRESHOLD_MIN && val <= EMPTY_THRESHOLD_MAX) {
+      emptyThreshold = (unsigned int)val;
+      saveEmptyThresholdToEeprom(emptyThreshold);
+      Serial.print("ETY=");
+      Serial.println(emptyThreshold);
+    } else {
+      Serial.println("ERR:RANGE");
+    }
+  } else if (strcmp(cmd, "$CTR") == 0) {
+    Serial.print("CTR:D=");
+    Serial.print(dispenseCount);
+    Serial.print(",ERR1=");
+    Serial.print(err1Count);
+    Serial.print(",ERR2=");
+    Serial.println(err2Count);
   } else {
     Serial.println("ERR:BAD-CMD");
   }
@@ -375,6 +476,10 @@ void setup() {
   loadDevPulseMsFromEeprom();
   loadDispenseTimeoutFromEeprom();
   loadGoldThresholdFromEeprom();
+  loadEmptyThresholdFromEeprom();
+  loadDispenseCountFromEeprom();
+  loadErr1CountFromEepromFunc();
+  loadErr2CountFromEeprom();
 
   pinMode(MOTOR_PIN, OUTPUT);
   digitalWrite(MOTOR_PIN, LOW);
