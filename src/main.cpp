@@ -7,6 +7,7 @@
 #define MOTOR2_PIN    5
 #define DEV_TRIGGER_OUT_PIN 4
 #define DEV_PULSE_IN_PIN    2
+#define PHYSICAL_TRIGGER_PIN 10
 #define IR_LED_PIN    6
 #define IR_SENSOR   A0
 #define LDR_LED_PIN   7
@@ -53,6 +54,15 @@ unsigned int emptyThreshold = EMPTY_THRESHOLD_DEFAULT;
 unsigned long dispenseCount = 0;
 unsigned long err1Count = 0;
 unsigned long err2Count = 0;
+int lastPhysicalTriggerState = HIGH;
+
+void runDispenseByMode() {
+  if (devMode == 0) {
+    dispense();
+  } else {
+    dispenseAltDev1();
+  }
+}
 
 uint8_t sanitizeDevMode(uint8_t mode) {
   return mode <= 1 ? mode : 0;
@@ -333,11 +343,7 @@ void dispenseAltDev1() {
 
 void processCommand(const char *cmd) {
   if (strcmp(cmd, "$D") == 0) {
-    if (devMode == 0) {
-      dispense();
-    } else {
-      dispenseAltDev1();
-    }
+    runDispenseByMode();
   } else if (strcmp(cmd, "$RM") == 0) {
     analogWrite(MOTOR_PIN, motorSpeed);
     Serial.println("MOTOR:ON");
@@ -465,6 +471,14 @@ void processCommand(const char *cmd) {
     Serial.print(err1Count);
     Serial.print(",ERR2=");
     Serial.println(err2Count);
+  } else if (strcmp(cmd, "$CLRCT") == 0) {
+    dispenseCount = 0;
+    err1Count = 0;
+    err2Count = 0;
+    saveDispenseCountToEeprom(dispenseCount);
+    saveErr1CountToEepromFunc(err1Count);
+    saveErr2CountToEeprom(err2Count);
+    Serial.println("CLRCT:OK");
   } else {
     Serial.println("ERR:BAD-CMD");
   }
@@ -488,14 +502,22 @@ void setup() {
   pinMode(DEV_TRIGGER_OUT_PIN, OUTPUT);
   digitalWrite(DEV_TRIGGER_OUT_PIN, LOW);
   pinMode(DEV_PULSE_IN_PIN, INPUT);
+  pinMode(PHYSICAL_TRIGGER_PIN, INPUT_PULLUP);
   pinMode(IR_LED_PIN, OUTPUT);
   digitalWrite(IR_LED_PIN, LOW);
   pinMode(LDR_LED_PIN, OUTPUT);
   digitalWrite(LDR_LED_PIN, HIGH);
   pinMode(LED_BUILTIN, OUTPUT); // DEBUG: LED integrado para indicar estado de la barrera
+  lastPhysicalTriggerState = digitalRead(PHYSICAL_TRIGGER_PIN);
 }
 
 void loop() {
+  int physicalTriggerState = digitalRead(PHYSICAL_TRIGGER_PIN);
+  if (lastPhysicalTriggerState == HIGH && physicalTriggerState == LOW) {
+    runDispenseByMode();
+  }
+  lastPhysicalTriggerState = physicalTriggerState;
+
   if (ldrContinuousMode) {
     unsigned long now = millis();
     if (now - lastLdrStreamMs >= LDR_STREAM_INTERVAL_MS) {
