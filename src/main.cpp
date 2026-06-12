@@ -55,14 +55,8 @@ unsigned long dispenseCount = 0;
 unsigned long err1Count = 0;
 unsigned long err2Count = 0;
 int lastPhysicalTriggerState = HIGH;
-
-void runDispenseByMode() {
-  if (devMode == 0) {
-    dispense();
-  } else {
-    dispenseAltDev1();
-  }
-}
+int adcValueLedOff = 0;
+int adcValueLedOn = 0;
 
 uint8_t sanitizeDevMode(uint8_t mode) {
   return mode <= 1 ? mode : 0;
@@ -224,12 +218,14 @@ bool isBeamBlocked() {
 }
 
 int readLdrWithLed() {
-  int adcValueLedOff = analogRead(LDR_SENSOR); // lectura sin LED para referencia
+  adcValueLedOff = analogRead(LDR_SENSOR); // lectura sin LED para referencia
+  delay(5);
   digitalWrite(LDR_LED_PIN, LOW);
   delay(10);
-  int adcValue = analogRead(LDR_SENSOR);
+  adcValueLedOn = analogRead(LDR_SENSOR);
+  delay(5);
   digitalWrite(LDR_LED_PIN, HIGH);
-  return adcValue - adcValueLedOff; // retorna diferencia para compensar luz ambiental
+  return adcValueLedOn - adcValueLedOff; // retorna diferencia para compensar luz ambiental
 }
 
 int readLdrRaw() {
@@ -327,6 +323,23 @@ void dispense() {
 }
 
 void dispenseAltDev1() {
+  Serial.println("OK"); //confirmacion de comando recibido
+  dispenseCount++;
+  saveDispenseCountToEeprom(dispenseCount);
+  
+  int ldrValue = readLdrWithLed();  // STATE 0 - PRECHECK: no iniciar si la barrera ya está tapada.
+  // Empty stock check before trying to dispense.
+  if (ldrValue <= (int)emptyThreshold) {
+    Serial.println("ERR:3");
+    return;
+  }
+  
+  // STATE 1 - CLASSIFY: mide LDR con LED auxiliar para clasificar tarjeta.
+  // Serial.println(ldrValue); // DEBUG: muestra valor LDR para diagnóstico
+  if (ldrValue > (int)emptyThreshold && ldrValue < (int)goldThreshold) {
+    Serial.println("GOLD");
+  }
+
   digitalWrite(DEV_TRIGGER_OUT_PIN, HIGH);
   delay(devPulseMs);
   digitalWrite(DEV_TRIGGER_OUT_PIN, LOW);
@@ -338,6 +351,14 @@ void dispenseAltDev1() {
     Serial.println("ERR:1");
   } else {
     Serial.println("ERR:0");
+  }
+}
+
+void runDispenseByMode() {
+  if (devMode == 0) {
+    dispense();
+  } else {
+    dispenseAltDev1();
   }
 }
 
@@ -395,6 +416,10 @@ void processCommand(const char *cmd) {
   } else if (strcmp(cmd, "$LDR") == 0) {
     int adcValue = readLdrWithLed();
     Serial.print("LDR=");
+    Serial.println(adcValue);
+  } else if (strcmp(cmd, "$LDRR") == 0) {
+    int adcValue = readLdrRaw();
+    Serial.print("LDRR=");
     Serial.println(adcValue);
   } else if (strcmp(cmd, "$LDRC") == 0) {
     ldrContinuousMode = true;

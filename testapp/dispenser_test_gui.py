@@ -40,7 +40,8 @@ FIRMWARE_COMMANDS = [
     ("$DM2 <ms>", "Delay M2", "Retardo de apagado motor 2"),
     ("$RP", "Run Pusher", "Enciende motor 2/pusher"),
     ("$SP", "Stop Pusher", "Apaga motor 2/pusher"),
-    ("$LDR", "Leer LDR", "Lectura unica de LDR"),
+    ("$LDR", "Leer LDR", "Lectura unica de LDR (con LED)"),
+    ("$LDRR", "Leer LDR raw", "Lectura cruda de LDR sin encender LED"),
     ("$LDRC", "LDR continuo ON", "Habilita stream continuo de LDR"),
     ("$LDRS", "LDR continuo OFF", "Detiene stream continuo de LDR"),
     ("$DEV <0|1>", "Modo dispositivo", "Selecciona modo normal/alterno"),
@@ -246,6 +247,8 @@ class App(tk.Tk):
             ("$SM", "Stop Motor"),
             ("$RP", "Run Pusher"),
             ("$SP", "Stop Pusher"),
+            ("$LDR", "Leer LDR"),
+            ("$LDRR", "LDR raw"),
         ]
 
         for col, (cmd, label) in enumerate(commands):
